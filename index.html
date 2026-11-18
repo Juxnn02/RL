@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>For Rachael</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cedarville+Cursive&family=Nunito:wght@500;600;800&display=swap">
+<style>
+  /* A night garden after an album cover: twinkling stars, hand lettering, tropical leaves and glowing suns.
+     A spiral of flowers turns until tapped, opens out around the message, and Back folds it up again. */
+  :root {
+    color-scheme: dark;
+    --bg: #080816;
+    --ink: #fff7f2;
+    --rose: #ffc4d4;
+    --sun: #ffd23f;
+    --line: #ffffff66;
+    --font: "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --hand: "Cedarville Cursive", "Segoe Script", "Bradley Hand", cursive;
+  }
+  html, body { height: 100%; }
+  body {
+    margin: 0; box-sizing: border-box;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: grid; overflow-x: hidden; overflow-y: auto;
+    background: var(--bg); color: var(--ink);
+    font-family: var(--font);
+    -webkit-tap-highlight-color: transparent;
+  }
+  #cv { position: fixed; inset: 0; width: 100%; height: 100%; }
+
+  #msg {
+    position: relative; z-index: 1; box-sizing: border-box; margin: auto;
+    width: min(100%, 540px); padding: 20px;
+    display: flex; flex-direction: column; gap: 1em;
+    text-align: center; text-shadow: 0 0 10px var(--bg), 0 0 3px var(--bg);
+  }
+  #msg > * { margin: 0; opacity: 0; transform: translateY(12px); transition: opacity .5s, transform .5s; }
+  #msg.in > * { opacity: 1; transform: none; transition: opacity 1.4s, transform 1.4s; }
+  #msg.in > :nth-child(2) { transition-delay: 1s; }
+  #msg.in > :nth-child(3) { transition-delay: 2.1s; }
+  #msg.in > :nth-child(4) { transition-delay: 3.2s; }
+  #msg.in > :nth-child(5) { transition-delay: 4.2s; }
+
+  h1 { font: 400 clamp(40px, min(11vw, 9vh), 76px)/1.15 var(--hand); }
+  p { font: 500 clamp(18px, min(4.8vw, 2.9vh), 24px)/1.55 var(--font); }
+  .sign { font: 400 clamp(28px, min(7vw, 5vh), 44px)/1.2 var(--hand); color: var(--sun); }
+  #msg img { align-self: center; width: min(220px, 46vw, 21vh); height: auto; border-radius: 18px; rotate: -2deg; }
+
+  button { font-family: var(--font); color: var(--ink); cursor: pointer; }
+  button:focus-visible { outline: 2px solid var(--rose); outline-offset: 4px; }
+  #go {
+    position: fixed; z-index: 2; left: 50%; transform: translateX(-50%);
+    bottom: max(28px, env(safe-area-inset-bottom, 0px));
+    padding: 12px 20px; background: none; border: 0;
+    font-size: 20px; font-weight: 600; letter-spacing: .04em;
+  }
+  @media (prefers-reduced-motion: no-preference) { #go { animation: pulse 2.4s ease-in-out infinite; } }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .opened #go { animation: none; opacity: 0; visibility: hidden; }
+
+  /* solid pill so it stays readable when flowers land behind it */
+  #back {
+    position: fixed; z-index: 2;
+    top: max(16px, env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px));
+    padding: 10px 20px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line);
+    font-size: 17px; font-weight: 600;
+    opacity: 0; visibility: hidden; transition: opacity .3s, visibility .3s;
+  }
+  #msg.in ~ #back { opacity: 1; visibility: visible; transition-delay: .6s; }
+
+  @media (prefers-reduced-motion: reduce) { #msg > *, #msg.in > * { transition: none; } }
+</style>
+
+<canvas id="cv" aria-hidden="true"></canvas>
+
+<main id="msg">
+  <h1>Happy Birthday,<br>dear Rachael</h1>
+  <p>I just wanted to let you know that you're always in my thoughts.</p>
+  <p>I hope today is as beautiful as you are, and that this new year brings you everything that makes you smile.</p>
+  <p class="sign">With all love,<br>&mdash; Juan</p>
+  <img src="snoopy.png" width="242" height="207" alt="Snoopy in a party hat, holding a birthday cake">
+</main>
+
+<button id="back" type="button">&larr; Back</button>
+<button id="go" type="button">tap to open</button>
+
+<script>
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), msg = document.getElementById('msg');
+const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const COLORS = ['#ff6b6b', '#ff9ec0', '#ffd23f', '#3fe6f2', '#fff4e6', '#ff9770', '#ffb3c7'];
+const GREENS = ['#2e9e47', '#58b947', '#1f7a3a'];
+const rnd = (a, b) => a + Math.random() * (b - a);
+const one = a => a[Math.floor(Math.random() * a.length)];
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = t => Math.min(Math.max(t, 0), 1);
+const out = t => 1 - (1 - t) ** 3;
+const back = t => 1 + 2.7 * (t - 1) ** 3 + 1.7 * (t - 1) ** 2;   // eases out with a little overshoot
+const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
+// k = kind: f flower, s sun, l leaf. Sizes and radii are fractions of U = the shorter screen side, so everything scales with the window.
+const mk = o => ({ k: 'f', c: one(COLORS), n: one([5, 6, 8]), a: rnd(0, 6.28), w: rnd(-.4, .4), st: rnd(.04, .09), tx: 0, ty: 0, tr: 0, tu: 0, ...o });
+
+// Drawn back to front: leaves, suns, then the spiral flowers, then extra flowers on top.
+const fl = [];
+for (let j = 0; j < 16; j++) fl.push(mk({ k: 'l', c: one(GREENS), st: rnd(.1, .18), w: 0, bloom: 1, d: rnd(.3, .5) }));
+for (let j = 0; j < 6; j++) fl.push(mk({ k: 's', st: rnd(.07, .11), bloom: 1, d: rnd(.4, .6) }));
+// The spiral: a sun at its heart, then 3 turns of flowers evenly spaced and bigger toward the outside.
+const A = .34 / (6 * Math.PI), GAP = .064;
+let i = 0;
+fl.push(mk({ k: 's', th: 0, r: 0, s0: .028, st: .07, i: i++, d: 0 }));
+for (let th = 1.4; th < 6 * Math.PI; ) {
+  const r = A * th;
+  fl.push(mk({ th, r, s0: GAP * (.4 + 1.5 * r), i, d: i++ * .007 }));
+  th += GAP / Math.hypot(r, A);
+}
+for (let j = 0; j < 30; j++) fl.push(mk({ bloom: 1, d: rnd(.4, .6) }));
+fl.sort((a, b) => 'lfs'.indexOf(a.k) - 'lfs'.indexOf(b.k)); // leaves behind, flowers in the middle, suns glowing on top
+const stars = Array.from({ length: 90 }, () => ({ x: Math.random(), y: Math.random(), r: rnd(.5, 1.4), p: rnd(0, 6.28), t: rnd(.3, 1.2) }));
+
+const dpr = Math.min(devicePixelRatio || 1, 2), DUR = RM ? .001 : 3.2;
+// open runs 0 (spiral) to 1 (garden); dir is +1 opening, -1 closing, 0 resting at the spiral.
+let dir = 0, open = 0, rot = 0, rotAtClick = 0, T = 0, last = performance.now(), timer;
+
+// Choose where every piece lands: anywhere on screen except over the message.
+// shortcut: positions are measured against the screen as it is at tap time, so scrolling a very short screen can slide text under flowers.
+function pick() {
+  const r = msg.getBoundingClientRect(), W = innerWidth, H = innerHeight, U = Math.min(W, H), cx = W / 2, cy = H / 2;
+  const L = r.left + 16, R = r.right - 16, Tp = r.top + 16, B = r.bottom - 16;   // the words sit inside the block's padding
+  for (const f of fl) {
+    const m = f.st * U;   // a piece may centre just off-screen so it peeks in from the edge
+    for (let k = 0; k < 80; k++) {
+      f.tx = rnd(-m, W + m); f.ty = rnd(-m, H + m);
+      if (f.tx < L - m || f.tx > R + m || f.ty < Tp - m || f.ty > B + m) break;
+    }
+    if (!f.bloom) { // spiral pieces swing once more around the centre on their way out
+      f.tr = Math.hypot(f.tx - cx, f.ty - cy);
+      f.tu = f.th + rotAtClick + wrap(Math.atan2(f.ty - cy, f.tx - cx) - f.th - rotAtClick) + 2 * Math.PI;
+    }
+  }
+}
+// shortcut: a resize while open re-scatters the flowers, fine for a one-off page.
+function fit() {
+  cv.width = innerWidth * dpr; cv.height = innerHeight * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (dir > 0) pick();
+}
+addEventListener('resize', fit); fit();
+
+function openIt() {
+  if (dir > 0 || open > 0) return;   // already open, or still folding back
+  dir = 1; rotAtClick = rot; pick();
+  document.body.classList.add('opened');
+  timer = setTimeout(() => msg.classList.add('in'), RM ? 0 : 1300);
+}
+function closeIt() {
+  if (dir <= 0) return;
+  dir = -1; clearTimeout(timer); msg.classList.remove('in');
+}
+addEventListener('click', openIt);
+document.getElementById('back').addEventListener('click', closeIt);
+
+function flower(x, y, s, a, c, n) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+  ctx.fillStyle = c; ctx.strokeStyle = '#0003';
+  for (let k = 0; k < n; k++) {
+    ctx.rotate(2 * Math.PI / n);
+    ctx.beginPath(); ctx.ellipse(0, -s / 2, s * .24, s / 2, 0, 0, 7); ctx.fill(); ctx.stroke();
+  }
+  ctx.fillStyle = '#f2a900'; ctx.beginPath(); ctx.arc(0, 0, s * .2, 0, 7); ctx.fill();
+  ctx.restore();
+}
+// A glowing yellow dot ringed by two dashed circles turning opposite ways.
+function sun(x, y, s, a) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = s * .9;
+  ctx.beginPath(); ctx.arc(0, 0, s * .4, 0, 7); ctx.fill();
+  ctx.shadowBlur = 0; ctx.strokeStyle = '#ffd23fcc'; ctx.lineWidth = 1.5; ctx.setLineDash([s * .1, s * .13]);
+  ctx.rotate(a); ctx.beginPath(); ctx.arc(0, 0, s * .6, 0, 7); ctx.stroke();
+  ctx.rotate(-2 * a); ctx.beginPath(); ctx.arc(0, 0, s * .85, 0, 7); ctx.stroke();
+  ctx.restore();
+}
+function leaf(x, y, s, a, c) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(a); ctx.fillStyle = c;
+  ctx.beginPath(); ctx.moveTo(0, -s); ctx.quadraticCurveTo(s * .6, -s * .1, 0, s); ctx.quadraticCurveTo(-s * .6, -s * .1, 0, -s); ctx.fill();
+  ctx.strokeStyle = '#0005'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(0, -s * .85); ctx.lineTo(0, s * .85); ctx.stroke();
+  ctx.restore();
+}
+
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, .05); last = now; T += dt;
+  const w = innerWidth, h = innerHeight, U = Math.min(w, h), cx = w / 2, cy = h / 2;
+  if (dir) {
+    open = clamp(open + dir * dt / DUR);
+    if (dir < 0 && open === 0) { dir = 0; document.body.classList.remove('opened'); }
+  }
+  if (!RM) rot += dt * .45 * (1 + 6 * Math.sin(Math.PI * open)); // the spiral whirls faster as it opens or closes
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#fff';
+  for (const s of stars) {
+    ctx.globalAlpha = .3 + .5 * Math.abs(Math.sin(RM ? s.p : T * s.t + s.p));
+    ctx.beginPath(); ctx.arc(s.x * w, s.y * h, s.r, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  for (const f of fl) {
+    const p = clamp((open - f.d) / .4);
+    let x = f.tx, y = f.ty, s = f.st * U * back(p);
+    if (!f.bloom) {
+      const e = out(p), ang = lerp(f.th + rot, f.tu, e), rad = lerp(f.r * U, f.tr, e);
+      x = cx + rad * Math.cos(ang); y = cy + rad * Math.sin(ang);
+      s = lerp(f.s0 * U, f.st * U, back(p)) * (RM ? 1 : back(clamp((T - f.i * .035) / .7))); // pieces bloom in along the spiral at the start
+    }
+    f.a += f.w * dt;
+    if (s > .5) (f.k === 'l' ? leaf : f.k === 's' ? sun : flower)(x, y, s, f.a, f.c, f.n);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
